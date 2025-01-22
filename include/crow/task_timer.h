@@ -42,7 +42,7 @@ namespace crow
             using clock_type = std::chrono::steady_clock;
             using time_type = clock_type::time_point;
         public:
-            task_timer(asio::io_context& io_context,
+            task_timer(const asio::any_io_executor& io_context,
                        const std::chrono::milliseconds tick_length =
                             std::chrono::seconds(1)) :
               io_context_(io_context), timer_(io_context_),
@@ -155,8 +155,8 @@ namespace crow
             }
 
         private:
-            asio::io_context& io_context_;
-            asio::basic_waitable_timer<clock_type> timer_;
+            asio::any_io_executor io_context_;
+            asio::steady_timer timer_;
             std::map<identifier_type, std::pair<time_type, task_type>> tasks_;
 
             // A continuously increasing number to be issued to threads to

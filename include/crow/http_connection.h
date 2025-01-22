@@ -42,6 +42,27 @@ namespace crow
     static std::atomic<int> connectionCount;
 #endif
 
+    namespace detail
+    {
+        inline std::string get_current_date_string()
+        {
+            std::string date_str;
+
+            auto last_time_t = time(0);
+            tm my_tm;
+
+#if defined(_MSC_VER) || defined(__MINGW32__)
+            gmtime_s(&my_tm, &last_time_t);
+#else
+            gmtime_r(&last_time_t, &my_tm);
+#endif
+            date_str.resize(100);
+            size_t date_str_sz = strftime(&date_str[0], 99, "%a, %d %b %Y %H:%M:%S GMT", &my_tm);
+            date_str.resize(date_str_sz);
+            return date_str;
+        };
+    } // namespace detail
+
     /// An HTTP connection.
     template<typename Adaptor, typename Handler, typename... Middlewares>
     class Connection : public std::enable_shared_from_this<Connection<Adaptor, Handler, Middlewares...>>
@@ -50,24 +71,20 @@ namespace crow
 
     public:
         Connection(
-          asio::io_context& io_context,
+          const asio::any_io_executor& io_context,
           Handler* handler,
           const std::string& server_name,
           std::tuple<Middlewares...>* middlewares,
-          std::function<std::string()>& get_cached_date_str_f,
-          detail::task_timer& task_timer,
-          typename Adaptor::context* adaptor_ctx_,
-          std::atomic<unsigned int>& queue_length):
+          std::shared_ptr<detail::task_timer> task_timer,
+          typename Adaptor::context* adaptor_ctx_):
           adaptor_(io_context, adaptor_ctx_),
           handler_(handler),
           parser_(this),
           req_(parser_.req),
           server_name_(server_name),
           middlewares_(middlewares),
-          get_cached_date_str(get_cached_date_str_f),
           task_timer_(task_timer),
-          res_stream_threshold_(handler->stream_threshold()),
-          queue_length_(queue_length)
+          res_stream_threshold_(handler->stream_threshold())
         {
 #ifdef CROW_ENABLE_DEBUG
             connectionCount++;
@@ -375,7 +392,7 @@ namespace crow
             if (!res.headers.count("date"))
             {
                 static std::string date_tag = "Date: ";
-                date_str_ = get_cached_date_str();
+                date_str_ = detail::get_current_date_string();
                 buffers_.emplace_back(date_tag.data(), date_tag.size());
                 buffers_.emplace_back(date_str_.data(), date_str_.size());
                 buffers_.emplace_back(crlf.data(), crlf.size());
@@ -563,7 +580,7 @@ namespace crow
         void cancel_deadline_timer()
         {
             CROW_LOG_DEBUG << this << " timer cancelled: " << &task_timer_ << ' ' << task_id_;
-            task_timer_.cancel(task_id_);
+            task_timer_->cancel(task_id_);
         }
 
         void start_deadline(/*int timeout = 5*/)
@@ -571,7 +588,7 @@ namespace crow
             cancel_deadline_timer();
 
             auto self = this->shared_from_this();
-            task_id_ = task_timer_.schedule([self] {
+            task_id_ = task_timer_->schedule([self] {
                 if (!self->adaptor_.is_open())
                 {
                     return;
@@ -611,13 +628,9 @@ namespace crow
 
         std::tuple<Middlewares...>* middlewares_;
         detail::context<Middlewares...> ctx_;
-
-        std::function<std::string()>& get_cached_date_str;
-        detail::task_timer& task_timer_;
+        std::shared_ptr<detail::task_timer> task_timer_;
 
         size_t res_stream_threshold_;
-
-        std::atomic<unsigned int>& queue_length_;
     };
 
 } // namespace crow

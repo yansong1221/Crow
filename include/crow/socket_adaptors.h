@@ -38,7 +38,7 @@ namespace crow
     struct SocketAdaptor
     {
         using context = void;
-        SocketAdaptor(asio::io_context& io_context, context*):
+        SocketAdaptor(const asio::any_io_executor& io_context, context*):
           socket_(io_context)
         {}
 
